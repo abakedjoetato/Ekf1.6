@@ -477,6 +477,113 @@ class Parsers(commands.Cog):
 
         await ctx.followup.send(embed=embed)
 
+    @discord.slash_command(name="resetlogparser", description="Reset log parser state and player counts")
+    @commands.has_permissions(administrator=True)
+    async def resetlogparser(self, ctx: discord.ApplicationContext,
+                           server_id: Option(str, "Server ID to reset (leave empty for all servers)", required=False) = None):
+        """Reset log parser state and clear player counts"""
+        await ctx.defer()
+
+        try:
+            if not hasattr(self.bot, 'log_parser') or not self.bot.log_parser:
+                await ctx.followup.send("❌ Log parser not initialized")
+                return
+
+            guild_id = ctx.guild.id
+            
+            # Get guild configuration
+            guild_config = await self.bot.db_manager.get_guild(guild_id)
+            if not guild_config:
+                await ctx.followup.send("❌ This guild is not configured")
+                return
+
+            servers = guild_config.get('servers', [])
+            if not servers:
+                await ctx.followup.send("❌ No servers configured for this guild")
+                return
+
+            reset_count = 0
+            
+            if server_id:
+                # Reset specific server
+                server_found = False
+                for server in servers:
+                    if str(server.get('_id')) == server_id:
+                        server_found = True
+                        server_key = f"{guild_id}_{server_id}"
+                        
+                        # Reset log parser state
+                        if hasattr(self.bot.log_parser, 'last_log_position'):
+                            self.bot.log_parser.last_log_position.pop(server_key, None)
+                        
+                        # Reset file states
+                        if hasattr(self.bot.log_parser, 'file_states'):
+                            self.bot.log_parser.file_states.pop(server_key, None)
+                        
+                        # Reset connection parser state
+                        if hasattr(self.bot.log_parser, 'connection_parser'):
+                            connection_parser = self.bot.log_parser.connection_parser
+                            if hasattr(connection_parser, 'player_states'):
+                                connection_parser.player_states.pop(server_key, None)
+                            if hasattr(connection_parser, 'server_stats'):
+                                connection_parser.server_stats.pop(server_key, None)
+                        
+                        # Reset server status
+                        if hasattr(self.bot.log_parser, 'server_status'):
+                            self.bot.log_parser.server_status.pop(server_key, None)
+                        
+                        reset_count = 1
+                        break
+                
+                if not server_found:
+                    await ctx.followup.send(f"❌ Server ID {server_id} not found in this guild")
+                    return
+            else:
+                # Reset all servers for this guild
+                for server in servers:
+                    server_key = f"{guild_id}_{server.get('_id')}"
+                    
+                    # Reset log parser state
+                    if hasattr(self.bot.log_parser, 'last_log_position'):
+                        self.bot.log_parser.last_log_position.pop(server_key, None)
+                    
+                    # Reset file states
+                    if hasattr(self.bot.log_parser, 'file_states'):
+                        self.bot.log_parser.file_states.pop(server_key, None)
+                    
+                    # Reset connection parser state
+                    if hasattr(self.bot.log_parser, 'connection_parser'):
+                        connection_parser = self.bot.log_parser.connection_parser
+                        if hasattr(connection_parser, 'player_states'):
+                            connection_parser.player_states.pop(server_key, None)
+                        if hasattr(connection_parser, 'server_stats'):
+                            connection_parser.server_stats.pop(server_key, None)
+                    
+                    # Reset server status
+                    if hasattr(self.bot.log_parser, 'server_status'):
+                        self.bot.log_parser.server_status.pop(server_key, None)
+                    
+                    reset_count += 1
+
+            # Create success embed using EmbedFactory
+            from bot.utils.embed_factory import EmbedFactory
+            embed = EmbedFactory.create_success_embed(
+                title="🔄 Log Parser Reset Complete",
+                description=f"Successfully reset log parser state for {reset_count} server{'s' if reset_count != 1 else ''}",
+                fields=[
+                    ("🗑️ Cleared Data", "• Last parsed line positions\n• Player count tracking\n• Connection states\n• File tracking states", True),
+                    ("🔄 Next Parse", "Parser will restart from beginning of log files on next run", True)
+                ]
+            )
+            
+            await ctx.followup.send(embed=embed)
+            
+            logger.info(f"Log parser reset completed for guild {guild_id}, reset {reset_count} servers")
+
+        except Exception as e:
+            logger.error(f"Failed to reset log parser: {e}")
+            await ctx.followup.send(f"❌ Failed to reset log parser: {str(e)}")
+
     @discord.slash_command(name="investigate_playercount", description="Deep investigation of player count issues")
     async def investigate_playercount(self, ctx: discord.ApplicationContext, 
                                      server_id: Option(str, "Specific server ID to investigate", required=False) = None):

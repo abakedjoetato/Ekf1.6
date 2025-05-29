@@ -61,16 +61,16 @@ class LogParser:
 
             # PLAYER CONNECTION LIFECYCLE EVENTS (Updated to match intelligent parser)
 
-            # 1. Queue Join - Player enters queue (actual format from logs)
+            # 1. Queue Join - Player enters queue (exact format from Deadside.log)
             'queue_join': re.compile(r'LogNet: Join request: /Game/Maps/world_\d+/World_\d+\?.*Name=([^&\?]+).*eosid=\|([a-f0-9]+)', re.IGNORECASE),
 
             # 2. Beacon connection (intermediate step)
             'beacon_join': re.compile(r'LogBeacon: Beacon Join SFPSOnlineBeaconClient EOS:\|([a-f0-9]+)', re.IGNORECASE),
 
-            # 3. Player Joined - Player successfully connects (updated format)
+            # 3. Player Joined - Player successfully connects (exact format from Deadside.log)
             'player_joined': re.compile(r'LogOnline: Warning: Player \|([a-f0-9]+) successfully registered!', re.IGNORECASE),
 
-            # 4. Disconnect Post-Join - Standard disconnect after joining
+            # 4. Disconnect Post-Join - Standard disconnect after joining (exact format from Deadside.log)
             'disconnect_post_join': re.compile(r'UChannel::Close: Sending CloseBunch.*UniqueId: EOS:\|([a-f0-9]+)', re.IGNORECASE),
 
             # 5. Disconnect Pre-Join - Disconnect from queue before joining  
@@ -101,7 +101,7 @@ class LogParser:
             'player_connection_cleanup': re.compile(r'\[(\d{4}\.\d{2}\.\d{2}-\d{2}\.\d{2}\.\d{2}:\d{3})\].*UChannel::CleanUp.*Connection.*RemoteAddr:\s*([\d\.]+):(\d+)', re.IGNORECASE),
             'player_beacon_join': re.compile(r'\[(\d{4}\.\d{2}\.\d{2}-\d{2}\.\d{2}\.\d{2}:\d{3})\].*BeaconHost.*accept.*from:\s*([\d\.]+):(\d+)', re.IGNORECASE),
 
-            # MISSION EVENTS - Updated to match actual log format (no timestamp brackets, different format)
+            # MISSION EVENTS - Exact format from Deadside.log
             'mission_ready': re.compile(r'LogSFPS: Mission (GA_[A-Za-z0-9_]*_[Mm]is[_0-9]*) switched to READY', re.IGNORECASE),
             'mission_waiting': re.compile(r'LogSFPS: Mission (GA_[A-Za-z0-9_]*_[Mm]is[_0-9]*) switched to WAITING', re.IGNORECASE),
             'mission_initial': re.compile(r'LogSFPS: Mission (GA_[A-Za-z0-9_]*_[Mm]is[_0-9]*) switched to INITIAL', re.IGNORECASE),
@@ -125,9 +125,9 @@ class LogParser:
             'helicrash_spawned': re.compile(r'\[(\d{4}\.\d{2}\.\d{2}-\d{2}\.\d{2}\.\d{2}:\d{3})\].*HeliCrash.*spawned.*(?:X=([\d\.-]+).*Y=([\d\.-]+))?', re.IGNORECASE),
             'helicrash_switched': re.compile(r'\[(\d{4}\.\d{2}\.\d{2}-\d{2}\.\d{2}\.\d{2}:\d{3})\].*HeliCrash.*switched.*to.*INITIAL', re.IGNORECASE),
 
-            # AIRDROP EVENTS - Enhanced patterns  
-            'airdrop_flying': re.compile(r'\[(\d{4}\.\d{2}\.\d{2}-\d{2}\.\d{2}\.\d{2}:\d{3})\].*(?:Airdrop|Air.*drop).*(?:flying|in.*air|deployed)', re.IGNORECASE),
-            'airdrop_switched': re.compile(r'\[(\d{4}\.\d{2}\.\d{2}-\d{2}\.\d{2}\.\d{2}:\d{3})\].*AirDrop.*switched.*to.*(?:Flying|Waiting)', re.IGNORECASE),
+            # AIRDROP EVENTS - Exact format from Deadside.log
+            'airdrop_flying': re.compile(r'LogSFPS: AirDrop switched to Flying', re.IGNORECASE),
+            'airdrop_switched': re.compile(r'LogSFPS: AirDrop switched to (Flying|Waiting)', re.IGNORECASE),
 
             # TRADER EVENTS - Enhanced patterns
             'trader_spawn': re.compile(r'\[(\d{4}\.\d{2}\.\d{2}-\d{2}\.\d{2}\.\d{2}:\d{3})\].*Trader.*(?:spawn|appear|initial).*(?:X=([\d\.-]+).*Y=([\d\.-]+))?', re.IGNORECASE),
