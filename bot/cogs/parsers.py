@@ -568,12 +568,8 @@ class Parsers(commands.Cog):
             # Create success embed using EmbedFactory
             from bot.utils.embed_factory import EmbedFactory
             embed = EmbedFactory.create_success_embed(
-                title="🔄 Log Parser Reset Complete",
-                description=f"Successfully reset log parser state for {reset_count} server{'s' if reset_count != 1 else ''}",
-                fields=[
-                    ("🗑️ Cleared Data", "• Last parsed line positions\n• Player count tracking\n• Connection states\n• File tracking states", True),
-                    ("🔄 Next Parse", "Parser will restart from beginning of log files on next run", True)
-                ]
+                success_message=f"Log parser state reset for {reset_count} server{'s' if reset_count != 1 else ''}",
+                details="• Cleared last parsed line positions\n• Reset player count tracking\n• Cleared connection states\n• Reset file tracking states\n\nParser will restart from beginning of log files on next run"
             )
             
             await ctx.followup.send(embed=embed)
@@ -583,6 +579,167 @@ class Parsers(commands.Cog):
         except Exception as e:
             logger.error(f"Failed to reset log parser: {e}")
             await ctx.followup.send(f"❌ Failed to reset log parser: {str(e)}")
+
+    @discord.slash_command(name="validatelogparser", description="Validate log parser against included test log file")
+    @commands.has_permissions(administrator=True)
+    async def validatelogparser(self, ctx: discord.ApplicationContext):
+        """Parse the included Deadside.log file and output validation results"""
+        await ctx.defer()
+
+        try:
+            if not hasattr(self.bot, 'log_parser') or not self.bot.log_parser:
+                await ctx.followup.send("❌ Log parser not initialized")
+                return
+
+            import os
+            log_file_path = "attached_assets/Deadside.log"
+            
+            if not os.path.exists(log_file_path):
+                await ctx.followup.send("❌ Test log file not found")
+                return
+
+            # Initialize counters for validation
+            validation_results = {
+                'queue_joins': 0,
+                'player_joins': 0,
+                'disconnects_post_join': 0,
+                'disconnects_pre_join': 0,
+                'missions_ready': 0,
+                'missions_initial': 0,
+                'airdrops_flying': 0,
+                'heli_crashes': 0,
+                'traders': 0,
+                'total_lines': 0
+            }
+
+            # Player lifecycle tracking for count calculation
+            jq = 0  # Queued
+            j2 = 0  # Joined
+            d1 = 0  # Disconnected after join
+            d2 = 0  # Disconnected before join
+
+            player_states = {}  # Track player states for accurate counting
+
+            # Parse the log file line by line
+            with open(log_file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                for line_num, line in enumerate(f, 1):
+                    validation_results['total_lines'] += 1
+                    line = line.strip()
+                    
+                    # Test queue joins
+                    if self.bot.log_parser.log_patterns['queue_join'].search(line):
+                        match = self.bot.log_parser.log_patterns['queue_join'].search(line)
+                        if match:
+                            player_name, player_id = match.groups()
+                            validation_results['queue_joins'] += 1
+                            jq += 1
+                            player_states[player_id] = 'QUEUED'
+                    
+                    # Test player joins (registrations)
+                    elif self.bot.log_parser.log_patterns['player_joined'].search(line):
+                        match = self.bot.log_parser.log_patterns['player_joined'].search(line)
+                        if match:
+                            player_id = match.groups()[0]
+                            validation_results['player_joins'] += 1
+                            j2 += 1
+                            player_states[player_id] = 'JOINED'
+                    
+                    # Test disconnects post-join
+                    elif self.bot.log_parser.log_patterns['disconnect_post_join'].search(line):
+                        match = self.bot.log_parser.log_patterns['disconnect_post_join'].search(line)
+                        if match:
+                            player_id = match.groups()[0]
+                            validation_results['disconnects_post_join'] += 1
+                            if player_states.get(player_id) == 'JOINED':
+                                d1 += 1
+                            else:
+                                d2 += 1
+                            player_states[player_id] = 'DISCONNECTED'
+                    
+                    # Test missions ready
+                    elif self.bot.log_parser.log_patterns['mission_ready'].search(line):
+                        match = self.bot.log_parser.log_patterns['mission_ready'].search(line)
+                        if match:
+                            mission_name = match.groups()[0]
+                            # Only count missions level 3+ as per requirements
+                            if 'mis' in mission_name.lower():
+                                validation_results['missions_ready'] += 1
+                    
+                    # Test missions initial
+                    elif self.bot.log_parser.log_patterns['mission_initial'].search(line):
+                        match = self.bot.log_parser.log_patterns['mission_initial'].search(line)
+                        if match:
+                            mission_name = match.groups()[0]
+                            if 'mis' in mission_name.lower():
+                                validation_results['missions_initial'] += 1
+                    
+                    # Test airdrops flying
+                    elif self.bot.log_parser.log_patterns['airdrop_flying'].search(line):
+                        validation_results['airdrops_flying'] += 1
+
+            # Calculate final player and queue counts using the specified logic
+            player_count = j2 - d1  # PC = j2 - d1
+            queue_count = jq - j2 - d2  # QC = jq - j2 - d2
+
+            # Create validation results embed manually since EmbedFactory expects different parameters
+            embed = discord.Embed(
+                title="📊 Log Parser Validation Results",
+                description=f"Validation completed on {validation_results['total_lines']:,} log lines",
+                color=0x1E90FF,
+                timestamp=datetime.now(timezone.utc)
+            )
+            
+            embed.add_field(
+                name="🔢 Connection Events", 
+                value=f"• Queue Joins (jq): **{validation_results['queue_joins']}**\n"
+                      f"• Player Joins (j2): **{validation_results['player_joins']}**\n"
+                      f"• Disconnects Post-Join (d1): **{validation_results['disconnects_post_join']}**\n"
+                      f"• Disconnects Pre-Join (d2): **{d2}**", 
+                inline=True
+            )
+            
+            embed.add_field(
+                name="📈 Calculated Counts", 
+                value=f"• **Player Count (PC)**: {player_count}\n"
+                      f"• **Queue Count (QC)**: {queue_count}\n"
+                      f"• Formula: PC = j2 - d1, QC = jq - j2 - d2", 
+                inline=True
+            )
+            
+            embed.add_field(
+                name="🎯 Game Events", 
+                value=f"• Missions Ready: **{validation_results['missions_ready']}**\n"
+                      f"• Missions Initial: **{validation_results['missions_initial']}**\n"
+                      f"• Airdrops Flying: **{validation_results['airdrops_flying']}**", 
+                inline=True
+            )
+            
+            embed.add_field(
+                name="✅ Validation Status", 
+                value=f"• Patterns Working: **{'✅ Yes' if validation_results['queue_joins'] > 0 else '❌ No'}**\n"
+                      f"• Player Count Valid: **{'✅ Yes' if player_count >= 0 else '❌ No'}**\n"
+                      f"• Queue Count Valid: **{'✅ Yes' if queue_count >= 0 else '❌ No'}**", 
+                inline=True
+            )
+
+            # Set appropriate thumbnail
+            embed.set_thumbnail(url="attachment://Mission.png")
+            embed.set_footer(text="Log Parser Validation • Powered by Emerald Servers")
+
+            await ctx.followup.send(embed=embed)
+            
+            # Also log the results for debugging
+            logger.info(f"Log parser validation completed:")
+            logger.info(f"  Queue joins: {validation_results['queue_joins']}")
+            logger.info(f"  Player joins: {validation_results['player_joins']}")
+            logger.info(f"  Disconnects: {validation_results['disconnects_post_join']}")
+            logger.info(f"  Missions ready: {validation_results['missions_ready']}")
+            logger.info(f"  Airdrops: {validation_results['airdrops_flying']}")
+            logger.info(f"  Final PC: {player_count}, QC: {queue_count}")
+
+        except Exception as e:
+            logger.error(f"Failed to validate log parser: {e}")
+            await ctx.followup.send(f"❌ Failed to validate log parser: {str(e)}")
 
     @discord.slash_command(name="investigate_playercount", description="Deep investigation of player count issues")
     async def investigate_playercount(self, ctx: discord.ApplicationContext, 

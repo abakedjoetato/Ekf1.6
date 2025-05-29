@@ -62,7 +62,7 @@ class LogParser:
             # PLAYER CONNECTION LIFECYCLE EVENTS (Updated to match intelligent parser)
 
             # 1. Queue Join - Player enters queue (exact format from Deadside.log)
-            'queue_join': re.compile(r'LogNet: Join request: /Game/Maps/world_\d+/World_\d+\?.*Name=([^&\?]+).*eosid=\|([a-f0-9]+)', re.IGNORECASE),
+            'queue_join': re.compile(r'LogNet: Join request: /Game/Maps/world_\d+/World_\d+\?.*eosid=\|([a-f0-9]+).*Name=([^&\?]+)', re.IGNORECASE),
 
             # 2. Beacon connection (intermediate step)
             'beacon_join': re.compile(r'LogBeacon: Beacon Join SFPSOnlineBeaconClient EOS:\|([a-f0-9]+)', re.IGNORECASE),
