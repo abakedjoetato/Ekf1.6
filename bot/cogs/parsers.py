@@ -650,10 +650,16 @@ class Parsers(commands.Cog):
                         if match:
                             player_id = match.groups()[0]
                             validation_results['disconnects_post_join'] += 1
-                            if player_states.get(player_id) == 'JOINED':
+                            current_state = player_states.get(player_id, 'UNKNOWN')
+                            
+                            # Only count as d1 if player was actively joined
+                            # Only count as d2 if player was actively queued
+                            if current_state == 'JOINED':
                                 d1 += 1
-                            else:
+                            elif current_state == 'QUEUED':
                                 d2 += 1
+                            # Don't count disconnections from already disconnected players
+                            
                             player_states[player_id] = 'DISCONNECTED'
                     
                     # Test missions ready
