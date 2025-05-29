@@ -59,11 +59,11 @@ class IntelligentLogParser:
             'server_max_players': re.compile(r'LogSFPS:.*playersmaxcount=(\d+)', re.IGNORECASE),
             
             # Player connection sequence - Updated patterns from actual log
-            'player_queue_join': re.compile(r'LogNet: Join request: /Game/Maps/world_\d+/World_\d+\?.*Name=([^&\?]+).*eosid=\|([a-f0-9]+)', re.IGNORECASE),
+            'player_queue_join': re.compile(r'LogNet: Join request: /Game/Maps/world_\d+/World_\d+\?.*eosid=\|([a-f0-9]+).*Name=([^&\?]+)', re.IGNORECASE),
             'player_beacon_join': re.compile(r'LogBeacon: Beacon Join SFPSOnlineBeaconClient EOS:\|([a-f0-9]+)', re.IGNORECASE),
             'player_queue_accepted': re.compile(r'NotifyAcceptingConnection accepted from: ([\d\.]+):(\d+)'),
             'player_beacon_connected': re.compile(r'NotifyAcceptedConnection.*SFPSOnlineBeaconHost.*RemoteAddr: ([\d\.]+):(\d+).*UniqueId: ([A-Z]+:\|\w+)'),
-            'player_queue_disconnect': re.compile(r'UChannel::Close: Sending CloseBunch.*UniqueId: EOS:\|([a-f0-9]+)', re.IGNORECASE),
+            'player_queue_disconnect': re.compile(r'UChannel::Close: Sending CloseBunch.*RemoteAddr: ([\d\.]+):(\d+).*UniqueId: EOS:\|([a-f0-9]+)', re.IGNORECASE),
             'player_world_connect': re.compile(r'NotifyAcceptedConnection.*Name: World_\d+.*RemoteAddr: ([\d\.]+):(\d+)'),
             
             # MISSION EVENTS - Updated to match actual log format (LogSFPS prefix, no timestamps)
