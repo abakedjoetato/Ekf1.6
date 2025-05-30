@@ -325,14 +325,47 @@ class Parsers(commands.Cog):
                 await ctx.followup.send("❌ Log parser not initialized")
                 return
 
+            # Reset the specific server or all servers
             if server_id:
+                logger.info(f"Resetting log parser for specific server: {server_id}")
                 # Reset specific server
-                self.bot.log_parser.reset_log_positions(ctx.guild.id, server_id)
-                await ctx.followup.send(f"✅ Reset log position for server {server_id}")
+                server_key = f"{ctx.guild.id}_{server_id}"
+
+                # Reset log position
+                if server_key in self.bot.log_parser.last_log_position:
+                    del self.bot.log_parser.last_log_position[server_key]
+
+                # Reset file state
+                if server_key in self.bot.log_parser.file_states:
+                    del self.bot.log_parser.file_states[server_key]
+
+                # Reset intelligent connection parser
+                self.bot.log_parser.connection_parser.reset_server_counts(server_key)
+
+                success_msg = f"✅ Reset log parser and player counts for server {server_id}"
             else:
-                # Reset all positions
-                self.bot.log_parser.reset_log_positions()
-                await ctx.followup.send("✅ Reset all log position tracking")
+                logger.info(f"Resetting log parser for all servers in guild {ctx.guild.id}")
+                # Reset all servers for this guild
+                guild_prefix = f"{ctx.guild.id}_"
+
+                # Reset log positions
+                keys_to_remove = [k for k in self.bot.log_parser.last_log_position.keys() if k.startswith(guild_prefix)]
+                for key in keys_to_remove:
+                    del self.bot.log_parser.last_log_position[key]
+
+                # Reset file states
+                keys_to_remove = [k for k in self.bot.log_parser.file_states.keys() if k.startswith(guild_prefix)]
+                for key in keys_to_remove:
+                    del self.bot.log_parser.file_states[key]
+
+                # Reset intelligent connection parser for all guild servers
+                connection_keys_to_reset = [k for k in self.bot.log_parser.connection_parser.server_counts.keys() if k.startswith(guild_prefix)]
+                for key in connection_keys_to_reset:
+                    self.bot.log_parser.connection_parser.reset_server_counts(key)
+
+                success_msg = f"✅ Reset log parser and player counts for all servers in guild"
+
+            await ctx.followup.send(success_msg)
 
         except Exception as e:
             await ctx.followup.send(f"❌ Failed to reset log positions: {str(e)}")
@@ -364,7 +397,7 @@ class Parsers(commands.Cog):
 
             # Test both intelligent parser and log parser patterns
             results = []
-            
+
             # Test intelligent connection parser patterns
             if hasattr(self.bot, 'log_parser') and hasattr(self.bot.log_parser, 'connection_parser'):
                 connection_parser = self.bot.log_parser.connection_parser
@@ -379,7 +412,7 @@ class Parsers(commands.Cog):
                             break
                     if not matched:
                         results.append(f"❌ No match: `{line[:50]}...`")
-                
+
                 results.append("\n**🔍 Testing Log Parser Patterns:**")
                 # Test main log parser patterns  
                 for line in test_lines:
@@ -396,7 +429,7 @@ class Parsers(commands.Cog):
                 results.append("❌ Parsers not available")
 
             response = "**Regex Pattern Test Results:**\n\n" + "\n".join(results)
-            
+
             if len(response) > 2000:
                 # Split into multiple messages if too long
                 await ctx.followup.send(response[:2000])
@@ -490,7 +523,7 @@ class Parsers(commands.Cog):
                 return
 
             guild_id = ctx.guild.id
-            
+
             # Get guild configuration
             guild_config = await self.bot.db_manager.get_guild(guild_id)
             if not guild_config:
@@ -503,7 +536,7 @@ class Parsers(commands.Cog):
                 return
 
             reset_count = 0
-            
+
             if server_id:
                 # Reset specific server
                 server_found = False
@@ -511,15 +544,15 @@ class Parsers(commands.Cog):
                     if str(server.get('_id')) == server_id:
                         server_found = True
                         server_key = f"{guild_id}_{server_id}"
-                        
+
                         # Reset log parser state
                         if hasattr(self.bot.log_parser, 'last_log_position'):
                             self.bot.log_parser.last_log_position.pop(server_key, None)
-                        
+
                         # Reset file states
                         if hasattr(self.bot.log_parser, 'file_states'):
                             self.bot.log_parser.file_states.pop(server_key, None)
-                        
+
                         # Reset connection parser state
                         if hasattr(self.bot.log_parser, 'connection_parser'):
                             connection_parser = self.bot.log_parser.connection_parser
@@ -527,14 +560,14 @@ class Parsers(commands.Cog):
                                 connection_parser.player_states.pop(server_key, None)
                             if hasattr(connection_parser, 'server_stats'):
                                 connection_parser.server_stats.pop(server_key, None)
-                        
+
                         # Reset server status
                         if hasattr(self.bot.log_parser, 'server_status'):
                             self.bot.log_parser.server_status.pop(server_key, None)
-                        
+
                         reset_count = 1
                         break
-                
+
                 if not server_found:
                     await ctx.followup.send(f"❌ Server ID {server_id} not found in this guild")
                     return
@@ -542,15 +575,15 @@ class Parsers(commands.Cog):
                 # Reset all servers for this guild
                 for server in servers:
                     server_key = f"{guild_id}_{server.get('_id')}"
-                    
+
                     # Reset log parser state
                     if hasattr(self.bot.log_parser, 'last_log_position'):
                         self.bot.log_parser.last_log_position.pop(server_key, None)
-                    
+
                     # Reset file states
                     if hasattr(self.bot.log_parser, 'file_states'):
                         self.bot.log_parser.file_states.pop(server_key, None)
-                    
+
                     # Reset connection parser state
                     if hasattr(self.bot.log_parser, 'connection_parser'):
                         connection_parser = self.bot.log_parser.connection_parser
@@ -558,11 +591,11 @@ class Parsers(commands.Cog):
                             connection_parser.player_states.pop(server_key, None)
                         if hasattr(connection_parser, 'server_stats'):
                             connection_parser.server_stats.pop(server_key, None)
-                    
+
                     # Reset server status
                     if hasattr(self.bot.log_parser, 'server_status'):
                         self.bot.log_parser.server_status.pop(server_key, None)
-                    
+
                     reset_count += 1
 
             # Create success embed using EmbedFactory
@@ -571,9 +604,9 @@ class Parsers(commands.Cog):
                 success_message=f"Log parser state reset for {reset_count} server{'s' if reset_count != 1 else ''}",
                 details="• Cleared last parsed line positions\n• Reset player count tracking\n• Cleared connection states\n• Reset file tracking states\n\nParser will restart from beginning of log files on next run"
             )
-            
+
             await ctx.followup.send(embed=embed)
-            
+
             logger.info(f"Log parser reset completed for guild {guild_id}, reset {reset_count} servers")
 
         except Exception as e:
@@ -593,7 +626,7 @@ class Parsers(commands.Cog):
 
             import os
             log_file_path = "attached_assets/Deadside.log"
-            
+
             if not os.path.exists(log_file_path):
                 await ctx.followup.send("❌ Test log file not found")
                 return
@@ -625,7 +658,7 @@ class Parsers(commands.Cog):
                 for line_num, line in enumerate(f, 1):
                     validation_results['total_lines'] += 1
                     line = line.strip()
-                    
+
                     # Test queue joins
                     if self.bot.log_parser.log_patterns['queue_join'].search(line):
                         match = self.bot.log_parser.log_patterns['queue_join'].search(line)
@@ -634,7 +667,7 @@ class Parsers(commands.Cog):
                             validation_results['queue_joins'] += 1
                             jq += 1
                             player_states[player_id] = 'QUEUED'
-                    
+
                     # Test player joins (registrations)
                     elif self.bot.log_parser.log_patterns['player_joined'].search(line):
                         match = self.bot.log_parser.log_patterns['player_joined'].search(line)
@@ -643,7 +676,7 @@ class Parsers(commands.Cog):
                             validation_results['player_joins'] += 1
                             j2 += 1
                             player_states[player_id] = 'JOINED'
-                    
+
                     # Test disconnects post-join
                     elif self.bot.log_parser.log_patterns['disconnect_post_join'].search(line):
                         match = self.bot.log_parser.log_patterns['disconnect_post_join'].search(line)
@@ -651,7 +684,7 @@ class Parsers(commands.Cog):
                             player_id = match.groups()[0]
                             validation_results['disconnects_post_join'] += 1
                             current_state = player_states.get(player_id, 'UNKNOWN')
-                            
+
                             # Only count as d1 if player was actively joined
                             # Only count as d2 if player was actively queued
                             if current_state == 'JOINED':
@@ -659,9 +692,9 @@ class Parsers(commands.Cog):
                             elif current_state == 'QUEUED':
                                 d2 += 1
                             # Don't count disconnections from already disconnected players
-                            
+
                             player_states[player_id] = 'DISCONNECTED'
-                    
+
                     # Test missions ready
                     elif self.bot.log_parser.log_patterns['mission_ready'].search(line):
                         match = self.bot.log_parser.log_patterns['mission_ready'].search(line)
@@ -670,7 +703,7 @@ class Parsers(commands.Cog):
                             # Only count missions level 3+ as per requirements
                             if 'mis' in mission_name.lower():
                                 validation_results['missions_ready'] += 1
-                    
+
                     # Test missions initial
                     elif self.bot.log_parser.log_patterns['mission_initial'].search(line):
                         match = self.bot.log_parser.log_patterns['mission_initial'].search(line)
@@ -678,7 +711,7 @@ class Parsers(commands.Cog):
                             mission_name = match.groups()[0]
                             if 'mis' in mission_name.lower():
                                 validation_results['missions_initial'] += 1
-                    
+
                     # Test airdrops flying
                     elif self.bot.log_parser.log_patterns['airdrop_flying'].search(line):
                         validation_results['airdrops_flying'] += 1
@@ -694,7 +727,7 @@ class Parsers(commands.Cog):
                 color=0x1E90FF,
                 timestamp=datetime.now(timezone.utc)
             )
-            
+
             embed.add_field(
                 name="🔢 Connection Events", 
                 value=f"• Queue Joins (jq): **{validation_results['queue_joins']}**\n"
@@ -703,7 +736,7 @@ class Parsers(commands.Cog):
                       f"• Disconnects Pre-Join (d2): **{d2}**", 
                 inline=True
             )
-            
+
             embed.add_field(
                 name="📈 Calculated Counts", 
                 value=f"• **Player Count (PC)**: {player_count}\n"
@@ -711,7 +744,7 @@ class Parsers(commands.Cog):
                       f"• Formula: PC = j2 - d1, QC = jq - j2 - d2", 
                 inline=True
             )
-            
+
             embed.add_field(
                 name="🎯 Game Events", 
                 value=f"• Missions Ready: **{validation_results['missions_ready']}**\n"
@@ -719,7 +752,7 @@ class Parsers(commands.Cog):
                       f"• Airdrops Flying: **{validation_results['airdrops_flying']}**", 
                 inline=True
             )
-            
+
             embed.add_field(
                 name="✅ Validation Status", 
                 value=f"• Patterns Working: **{'✅ Yes' if validation_results['queue_joins'] > 0 else '❌ No'}**\n"
@@ -733,7 +766,7 @@ class Parsers(commands.Cog):
             embed.set_footer(text="Log Parser Validation • Powered by Emerald Servers")
 
             await ctx.followup.send(embed=embed)
-            
+
             # Also log the results for debugging
             logger.info(f"Log parser validation completed:")
             logger.info(f"  Queue joins: {validation_results['queue_joins']}")

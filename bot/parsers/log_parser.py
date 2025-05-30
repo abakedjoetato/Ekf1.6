@@ -764,10 +764,8 @@ class LogParser:
         if not line:
             return None
 
-        # FIRST: Check for player connection lifecycle events using intelligent parser
-        lifecycle_result = await self.connection_parser.parse_connection_event(line, server_key, guild_id)
-        if lifecycle_result:
-            return lifecycle_result
+        # FIRST: Always run intelligent parser for player tracking (doesn't return events, just updates state)
+        await self.connection_parser.parse_connection_event(line, server_key, guild_id)
 
         # Try each pattern - prioritize specific patterns over generic ones
         for event_type, pattern in self.log_patterns.items():
