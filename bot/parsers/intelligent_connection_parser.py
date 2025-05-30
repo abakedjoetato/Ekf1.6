@@ -131,8 +131,8 @@ class IntelligentConnectionParser:
             'player_connected': re.compile(r'LogOnline:.*Player.*(\w{32}).*connected', re.IGNORECASE),
             'network_close': re.compile(r'UChannel::Close.*UniqueId:.*(\w{32})', re.IGNORECASE),
             
-            # 10. Server configuration patterns
-            'server_max_players': re.compile(r'LogSFPS:.*playersmaxcount=(\d+)', re.IGNORECASE)
+            # 10. Server configuration patterns - Fixed to match actual format
+            'server_max_players': re.compile(r'playersmaxcount=(\d+)', re.IGNORECASE)
         }
 
     def initialize_server_tracking(self, server_key: str):
