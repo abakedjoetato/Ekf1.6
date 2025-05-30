@@ -297,7 +297,7 @@ class IntelligentConnectionParser:
         logger.info(f"📊 Live Counts - Players: {player_count}, Queue: {queue_count}")
         await self._update_voice_channels(server_key, player_count, queue_count)
 
-    async def _update_voice_channels(self, server_key: str, player_count: int, queue_count: int):
+    async def _update_voice_channels(self, server_key: str, player_count: int, queue_count: int, max_players: int = None):
         """Update voice channel names with current counts"""
         try:
             parts = server_key.split('_')
@@ -316,10 +316,12 @@ class IntelligentConnectionParser:
             voice_channel_id = channels.get('playercountvc')
 
             if not voice_channel_id:
+                logger.debug(f"No playercountvc channel configured for guild {guild_id}")
                 return
 
             voice_channel = guild.get_channel(voice_channel_id)
             if not voice_channel:
+                logger.warning(f"Voice channel {voice_channel_id} not found for guild {guild_id}")
                 return
 
             # Get server name
@@ -330,8 +332,10 @@ class IntelligentConnectionParser:
                     server_name = server_config.get('name', server_name)
                     break
 
-            # Format channel name - use stored max players or default
-            max_players = self.server_counts[server_key].get('max_players', 50)
+            # Format channel name - use provided max_players or stored value or default
+            if max_players is None:
+                max_players = self.server_counts[server_key].get('max_players', 50)
+            
             if queue_count > 0:
                 new_name = f"📈 {server_name}: {player_count}/{max_players} ({queue_count} in queue)"
             else:
@@ -340,6 +344,8 @@ class IntelligentConnectionParser:
             if voice_channel.name != new_name:
                 await voice_channel.edit(name=new_name)
                 logger.info(f"🔊 Updated voice channel: {new_name}")
+            else:
+                logger.debug(f"🔊 Voice channel already up to date: {new_name}")
 
         except Exception as e:
             logger.error(f"Failed to update voice channels: {e}")
@@ -511,7 +517,7 @@ class IntelligentConnectionParser:
         # Update voice channel with new max player count
         player_count = self.server_counts[server_key]['player_count']
         queue_count = self.server_counts[server_key]['queue_count']
-        await self._update_voice_channels(server_key, player_count, queue_count)
+        await self._update_voice_channels(server_key, player_count, queue_count, max_players)
 
     def test_counting_logic(self, server_key: str) -> dict:
         """Test the mathematical soundness of counting logic"""

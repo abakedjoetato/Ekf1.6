@@ -1412,6 +1412,13 @@ class LogParser:
                     self.connection_parser.initialize_server_tracking(server_key)
                     await self.connection_parser._update_counts(server_key)
                     
+                    # Force voice channel update after cold start
+                    logger.info(f"🧊 COLD START: Forcing voice channel update for server {server_id}")
+                    stats = self.connection_parser.get_server_stats(server_key)
+                    player_count = stats.get('player_count', 0)
+                    queue_count = stats.get('queue_count', 0)
+                    await self.connection_parser._update_voice_channels(server_key, player_count, queue_count)
+                    
                 finally:
                     # Clean up temporary file
                     try:
@@ -1466,6 +1473,13 @@ class LogParser:
                 server_key = self.get_server_status_key(guild_id, server_id)
                 content_size = len(log_content.encode('utf-8'))
                 await self._update_file_state(server_key, content_size, total_lines, lines[-1] if lines else "")
+                
+                # Force voice channel update after hot start
+                logger.info(f"🔥 HOT START: Forcing voice channel update for server {server_id}")
+                stats = self.connection_parser.get_server_stats(server_key)
+                player_count = stats.get('player_count', 0)
+                queue_count = stats.get('queue_count', 0)
+                await self.connection_parser._update_voice_channels(server_key, player_count, queue_count)
 
         except Exception as e:
             logger.error(f"Failed to parse logs for server {server_config}: {e}")
