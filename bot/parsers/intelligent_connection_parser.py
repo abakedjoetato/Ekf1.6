@@ -359,7 +359,7 @@ class IntelligentConnectionParser:
             logger.error(f"Failed to update voice channels: {e}")
 
     async def _queue_join_embed(self, player_state: PlayerConnectionState, server_key: str, guild_id: int):
-        """Queue join embed for player - works with or without player names"""
+        """Queue join embed for player - only shows embeds when we have actual player names"""
         try:
             # Get connections channel
             guild_config = await self.bot.db_manager.get_guild(guild_id)
@@ -374,11 +374,20 @@ class IntelligentConnectionParser:
                 logger.debug(f"No connections channel configured for guild {guild_id}")
                 return
 
-            # Use player name or fallback to player ID with "Player" prefix
-            display_name = player_state.player_name or f"Player {player_state.player_id[:8]}"
+            # Try to resolve player name if we don't have one
+            if not player_state.player_name:
+                resolved_name = await self._resolve_player_name(player_state.player_id, server_key)
+                if resolved_name:
+                    player_state.player_name = resolved_name
+                    await self._cache_player_name(server_key, player_state.player_id, resolved_name)
+
+            # Only send embed if we have an actual player name
+            if not player_state.player_name:
+                logger.warning(f"No player name available for join embed: {player_state.player_id[:8]}... - skipping embed")
+                return
 
             embed_data = {
-                'connection_id': display_name,
+                'connection_id': player_state.player_name,
                 'timestamp': datetime.now(timezone.utc)
             }
 
@@ -391,7 +400,7 @@ class IntelligentConnectionParser:
                     embed=embed,
                     file=file_attachment
                 )
-                logger.info(f"✅ Queued join embed for {display_name}")
+                logger.info(f"✅ Queued join embed for {player_state.player_name}")
             else:
                 # Direct send as fallback
                 channel = self.bot.get_channel(connections_channel_id)
@@ -400,7 +409,7 @@ class IntelligentConnectionParser:
                         await channel.send(embed=embed, file=file_attachment)
                     else:
                         await channel.send(embed=embed)
-                    logger.info(f"✅ Sent join embed directly for {display_name}")
+                    logger.info(f"✅ Sent join embed directly for {player_state.player_name}")
                 else:
                     logger.warning(f"❌ Could not find channel {connections_channel_id}")
 
@@ -410,7 +419,7 @@ class IntelligentConnectionParser:
             logger.error(f"Full traceback: {traceback.format_exc()}")
 
     async def _queue_leave_embed(self, player_state: PlayerConnectionState, server_key: str, guild_id: int):
-        """Queue leave embed for player - works with or without player names"""
+        """Queue leave embed for player - only shows embeds when we have actual player names"""
         try:
             # Get connections channel
             guild_config = await self.bot.db_manager.get_guild(guild_id)
@@ -425,11 +434,19 @@ class IntelligentConnectionParser:
                 logger.debug(f"No connections channel configured for guild {guild_id}")
                 return
 
-            # Use player name or fallback to player ID with "Player" prefix
-            display_name = player_state.player_name or f"Player {player_state.player_id[:8]}"
+            # Try to resolve player name if we don't have one
+            if not player_state.player_name:
+                resolved_name = await self._resolve_player_name(player_state.player_id, server_key)
+                if resolved_name:
+                    player_state.player_name = resolved_name
+
+            # Only send embed if we have an actual player name
+            if not player_state.player_name:
+                logger.warning(f"No player name available for leave embed: {player_state.player_id[:8]}... - skipping embed")
+                return
 
             embed_data = {
-                'connection_id': display_name,
+                'connection_id': player_state.player_name,
                 'timestamp': datetime.now(timezone.utc)
             }
 
@@ -442,7 +459,7 @@ class IntelligentConnectionParser:
                     embed=embed,
                     file=file_attachment
                 )
-                logger.info(f"✅ Queued leave embed for {display_name}")
+                logger.info(f"✅ Queued leave embed for {player_state.player_name}")
             else:
                 # Direct send as fallback
                 channel = self.bot.get_channel(connections_channel_id)
@@ -451,7 +468,7 @@ class IntelligentConnectionParser:
                         await channel.send(embed=embed, file=file_attachment)
                     else:
                         await channel.send(embed=embed)
-                    logger.info(f"✅ Sent leave embed directly for {display_name}")
+                    logger.info(f"✅ Sent leave embed directly for {player_state.player_name}")
                 else:
                     logger.warning(f"❌ Could not find channel {connections_channel_id}")
 
@@ -480,6 +497,55 @@ class IntelligentConnectionParser:
                     logger.debug(f"Cleaned up old state for {player_id}")
 
     def reset_server_counts(self, server_key: str):
+
+
+    async def _resolve_player_name(self, player_id: str, server_key: str) -> Optional[str]:
+        """Resolve player ID to player name using database lookup and caching"""
+        try:
+            # Check cache first
+            if server_key in self.player_names and player_id in self.player_names[server_key]:
+                return self.player_names[server_key][player_id]
+            
+            # Extract guild_id and server_id from server_key
+            parts = server_key.split('_')
+            guild_id = int(parts[0])
+            server_id = parts[1] if len(parts) > 1 else 'unknown'
+            
+            # Search for player name in recent kill events
+            if hasattr(self.bot, 'db_manager') and self.bot.db_manager:
+                # Look for recent kills/deaths involving this player ID
+                recent_kills = await self.bot.db_manager.get_recent_kills(guild_id, server_id, limit=100)
+                
+                for kill_event in recent_kills:
+                    # Check if this player ID appears as killer
+                    if kill_event.get('killer_id') == player_id and kill_event.get('killer'):
+                        player_name = kill_event.get('killer')
+                        await self._cache_player_name(server_key, player_id, player_name)
+                        return player_name
+                    
+                    # Check if this player ID appears as victim
+                    if kill_event.get('victim_id') == player_id and kill_event.get('victim'):
+                        player_name = kill_event.get('victim')
+                        await self._cache_player_name(server_key, player_id, player_name)
+                        return player_name
+                
+                # Search in PvP data for linked characters
+                players_cursor = self.bot.db_manager.players.find({'guild_id': guild_id})
+                async for player_doc in players_cursor:
+                    # Check if this player ID matches any character names (approximate match)
+                    linked_chars = player_doc.get('linked_characters', [])
+                    for char_name in linked_chars:
+                        # Simple check if player_id is contained in character name or vice versa
+                        if player_id.lower() in char_name.lower() or char_name.lower() in player_id.lower():
+                            await self._cache_player_name(server_key, player_id, char_name)
+                            return char_name
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Failed to resolve player name for ID {player_id}: {e}")
+            return None
+
         """Reset counts for a specific server"""
         if server_key in self.player_states:
             self.player_states[server_key].clear()
