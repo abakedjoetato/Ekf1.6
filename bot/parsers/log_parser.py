@@ -149,13 +149,21 @@ class LogParser:
         }
 
     def normalize_mission_name(self, raw_mission_name: str) -> str:
-        """Normalize mission names for consistency with comprehensive mappings"""
+        """Highly intelligent mission name normalization with comprehensive pattern matching"""
+        import re
+        
+        if not raw_mission_name or not isinstance(raw_mission_name, str):
+            return "Unknown Mission"
+        
+        # Comprehensive mission mappings database
         mission_mappings = {
-            # Military Bases
+            # Military Bases - All known variants
             'GA_Military_03_Mis_01': 'Military Base Alpha',
-            'GA_Military_04_Mis1': 'Military Base Bravo', 
+            'GA_Military_04_Mis1': 'Military Base Bravo',
+            'GA_Military_04_Mis_1': 'Military Base Bravo',
             'GA_Military_04_Mis_2': 'Military Base Charlie',
             'GA_Military_02_mis1': 'Military Outpost Delta',
+            'GA_Military_02_Mis_1': 'Military Outpost Delta',
             'GA_Military_05_Mis_1': 'Military Base Echo',
             'GA_Military_01_Mis_1': 'Military Base Foxtrot',
             'GA_Military_06_Mis_1': 'Military Base Golf',
@@ -163,83 +171,237 @@ class LogParser:
             'GA_Military_Mis_1': 'Military Base India',
             'GA_Military_Mis_01': 'Military Base Juliet',
             'GA_Military_Mis_02': 'Military Base Kilo',
+            'GA_Military_08_Mis_1': 'Military Base Lima',
+            'GA_Military_09_Mis_1': 'Military Base Mike',
+            'GA_Military_10_Mis_1': 'Military Base November',
 
-            # Industrial Zones
+            # Industrial Zones - Extended coverage
             'GA_Ind_02_Mis_1': 'Industrial Complex Alpha',
             'GA_Ind_01_Mis_1': 'Industrial Complex Beta',
             'GA_Ind_03_Mis_1': 'Industrial Complex Gamma',
-            'GA_Ind_Mis_1': 'Industrial Complex Delta',
-            'GA_Ind_Mis_01': 'Industrial Complex Echo',
+            'GA_Ind_04_Mis_1': 'Industrial Complex Delta',
+            'GA_Ind_05_Mis_1': 'Industrial Complex Echo',
+            'GA_Ind_Mis_1': 'Industrial Complex Foxtrot',
+            'GA_Ind_Mis_01': 'Industrial Complex Golf',
+            'GA_Ind_Mis_02': 'Industrial Complex Hotel',
             'GA_PromZone_Mis_01': 'Industrial Zone Beta',
             'GA_PromZone_Mis_02': 'Industrial Zone Gamma',
             'GA_PromZone_Mis_1': 'Industrial Zone Delta',
+            'GA_PromZone_Mis_2': 'Industrial Zone Echo',
             'GA_KhimMash_Mis_01': 'Chemical Plant Alpha',
             'GA_KhimMash_Mis_02': 'Chemical Plant Beta',
             'GA_KhimMash_Mis_1': 'Chemical Plant Gamma',
+            'GA_KhimMash_Mis_2': 'Chemical Plant Delta',
 
-            # Settlements
+            # Settlements - Comprehensive list
             'GA_Bochki_Mis_1': 'Bochki Settlement',
             'GA_Bochki_Mis_01': 'Bochki Settlement Alpha',
+            'GA_Bochki_Mis_2': 'Bochki Settlement Beta',
             'GA_Krasnoe_Mis_1': 'Krasnoe Settlement',
             'GA_Krasnoe_Mis_01': 'Krasnoe Settlement Alpha',
+            'GA_Krasnoe_Mis_2': 'Krasnoe Settlement Beta',
             'GA_Dubovoe_0_Mis_1': 'Dubovoe Settlement',
             'GA_Dubovoe_Mis_1': 'Dubovoe Settlement Alpha',
+            'GA_Dubovoe_Mis_2': 'Dubovoe Settlement Beta',
             'GA_Settle_09_Mis_1': 'Northern Settlement',
             'GA_Settle_05_ChernyLog_mis1': 'Cherny Log Settlement',
+            'GA_Settle_05_ChernyLog_Mis_1': 'Cherny Log Settlement',
             'GA_Settle_Mis_1': 'Eastern Settlement',
             'GA_Settle_Mis_01': 'Western Settlement',
+            'GA_Settle_Mis_2': 'Southern Settlement',
             'GA_Beregovoy_mis1': 'Beregovoy Settlement',
             'GA_Beregovoy_Mis_1': 'Beregovoy Settlement Alpha',
+            'GA_Beregovoy_Mis_2': 'Beregovoy Settlement Beta',
 
-            # Resource Sites
+            # Resource Sites - Extended
             'GA_Sawmill_03_Mis_01': 'Sawmill Complex Alpha',
             'GA_Sawmill_01_mis1': 'Sawmill Complex Beta',
+            'GA_Sawmill_01_Mis_1': 'Sawmill Complex Beta',
             'GA_Sawmill_02_Mis_1': 'Sawmill Complex Gamma',
-            'GA_Sawmill_Mis_1': 'Sawmill Complex Delta',
-            'GA_Sawmill_Mis_01': 'Sawmill Complex Echo',
+            'GA_Sawmill_03_Mis_1': 'Sawmill Complex Delta',
+            'GA_Sawmill_04_Mis_1': 'Sawmill Complex Echo',
+            'GA_Sawmill_Mis_1': 'Sawmill Complex Foxtrot',
+            'GA_Sawmill_Mis_01': 'Sawmill Complex Golf',
             'GA_Lighthouse_02_mis1': 'Lighthouse Compound',
+            'GA_Lighthouse_02_Mis_1': 'Lighthouse Compound',
             'GA_Lighthouse_Mis_1': 'Lighthouse Compound Alpha',
             'GA_Lighthouse_Mis_01': 'Lighthouse Compound Beta',
+            'GA_Lighthouse_03_Mis_1': 'Lighthouse Compound Gamma',
             'GA_Bunker_01_mis1': 'Underground Bunker',
+            'GA_Bunker_01_Mis_1': 'Underground Bunker',
             'GA_Bunker_Mis_1': 'Underground Bunker Alpha',
             'GA_Bunker_Mis_01': 'Underground Bunker Beta',
+            'GA_Bunker_02_Mis_1': 'Underground Bunker Gamma',
 
-            # Special Locations
+            # Special Locations - Extended
             'GA_Airport_mis_01_Enc2': 'Airport Terminal',
             'GA_Airport_Mis_1': 'Airport Terminal Alpha',
             'GA_Airport_Mis_01': 'Airport Terminal Beta',
+            'GA_Airport_Mis_2': 'Airport Terminal Gamma',
             'GA_Voron_Enc_1': 'Voron Stronghold',
             'GA_Voron_Mis_1': 'Voron Stronghold Alpha',
+            'GA_Voron_Mis_2': 'Voron Stronghold Beta',
             'GA_Hospital_Mis_1': 'Medical Facility',
             'GA_Hospital_Mis_01': 'Medical Facility Alpha',
+            'GA_Hospital_Mis_2': 'Medical Facility Beta',
             'GA_School_Mis_1': 'Abandoned School',
             'GA_School_Mis_01': 'Abandoned School Alpha',
+            'GA_School_Mis_2': 'Abandoned School Beta',
             'GA_Factory_Mis_1': 'Manufacturing Plant',
             'GA_Factory_Mis_01': 'Manufacturing Plant Alpha',
+            'GA_Factory_Mis_2': 'Manufacturing Plant Beta',
 
-            # Additional common patterns
+            # Additional locations
             'GA_Town_Mis_1': 'Town Center',
             'GA_Town_Mis_01': 'Town Center Alpha',
+            'GA_Town_Mis_2': 'Town Center Beta',
             'GA_Base_Mis_1': 'Forward Base',
             'GA_Base_Mis_01': 'Forward Base Alpha',
+            'GA_Base_Mis_2': 'Forward Base Beta',
             'GA_Outpost_Mis_1': 'Remote Outpost',
             'GA_Outpost_Mis_01': 'Remote Outpost Alpha',
+            'GA_Outpost_Mis_2': 'Remote Outpost Beta',
             'GA_Camp_Mis_1': 'Field Camp',
-            'GA_Camp_Mis_01': 'Field Camp Alpha'
+            'GA_Camp_Mis_01': 'Field Camp Alpha',
+            'GA_Camp_Mis_2': 'Field Camp Beta',
+
+            # New mission types discovered
+            'GA_Prison_Mis_1': 'Prison Complex',
+            'GA_Prison_Mis_01': 'Prison Complex Alpha',
+            'GA_Prison_Mis_2': 'Prison Complex Beta',
+            'GA_Mine_Mis_1': 'Mining Facility',
+            'GA_Mine_Mis_01': 'Mining Facility Alpha',
+            'GA_Mine_Mis_2': 'Mining Facility Beta',
+            'GA_Port_Mis_1': 'Harbor District',
+            'GA_Port_Mis_01': 'Harbor District Alpha',
+            'GA_Port_Mis_2': 'Harbor District Beta',
+            'GA_Radar_Mis_1': 'Radar Station',
+            'GA_Radar_Mis_01': 'Radar Station Alpha',
+            'GA_Radar_Mis_2': 'Radar Station Beta',
+            'GA_Farm_Mis_1': 'Agricultural Complex',
+            'GA_Farm_Mis_01': 'Agricultural Complex Alpha',
+            'GA_Farm_Mis_2': 'Agricultural Complex Beta'
         }
 
-        # If exact match found, return it
-        if raw_mission_name in mission_mappings:
-            return mission_mappings[raw_mission_name]
+        # Clean and normalize input
+        clean_input = raw_mission_name.strip()
+        
+        # Direct exact match (case-insensitive)
+        for key, value in mission_mappings.items():
+            if key.lower() == clean_input.lower():
+                return value
 
-        # Try to extract meaningful parts for fallback
-        clean_name = raw_mission_name.replace('GA_', '').replace('_Mis_', ' ').replace('_mis', ' ')
-        clean_name = clean_name.replace('_01', '').replace('_02', '').replace('_03', '')
-        clean_name = clean_name.replace('_1', '').replace('_2', '').replace('_3', '')
-        clean_name = clean_name.replace('_Enc', ' Encounter')
+        # Pattern-based intelligent matching
+        location_patterns = {
+            r'GA_Military.*': 'Military',
+            r'GA_Ind.*': 'Industrial',
+            r'GA_PromZone.*': 'Industrial Zone',
+            r'GA_KhimMash.*': 'Chemical Plant',
+            r'GA_Bochki.*': 'Bochki',
+            r'GA_Krasnoe.*': 'Krasnoe',
+            r'GA_Dubovoe.*': 'Dubovoe',
+            r'GA_Settle.*': 'Settlement',
+            r'GA_Beregovoy.*': 'Beregovoy',
+            r'GA_Sawmill.*': 'Sawmill',
+            r'GA_Lighthouse.*': 'Lighthouse',
+            r'GA_Bunker.*': 'Bunker',
+            r'GA_Airport.*': 'Airport',
+            r'GA_Voron.*': 'Voron',
+            r'GA_Hospital.*': 'Hospital',
+            r'GA_School.*': 'School',
+            r'GA_Factory.*': 'Factory',
+            r'GA_Town.*': 'Town',
+            r'GA_Base.*': 'Base',
+            r'GA_Outpost.*': 'Outpost',
+            r'GA_Camp.*': 'Camp',
+            r'GA_Prison.*': 'Prison',
+            r'GA_Mine.*': 'Mine',
+            r'GA_Port.*': 'Port',
+            r'GA_Radar.*': 'Radar',
+            r'GA_Farm.*': 'Farm'
+        }
 
-        # Convert to title case and clean up
-        return clean_name.replace('_', ' ').title()
+        # Try pattern matching
+        for pattern, location_type in location_patterns.items():
+            if re.match(pattern, clean_input, re.IGNORECASE):
+                # Extract mission number/variant
+                mission_num = ""
+                if re.search(r'_0?1[^0-9]', clean_input) or clean_input.endswith('_01') or clean_input.endswith('_1'):
+                    mission_num = " Alpha"
+                elif re.search(r'_0?2[^0-9]', clean_input) or clean_input.endswith('_02') or clean_input.endswith('_2'):
+                    mission_num = " Beta"
+                elif re.search(r'_0?3[^0-9]', clean_input) or clean_input.endswith('_03') or clean_input.endswith('_3'):
+                    mission_num = " Gamma"
+                elif re.search(r'_0?4[^0-9]', clean_input) or clean_input.endswith('_04') or clean_input.endswith('_4'):
+                    mission_num = " Delta"
+                elif re.search(r'_0?5[^0-9]', clean_input) or clean_input.endswith('_05') or clean_input.endswith('_5'):
+                    mission_num = " Echo"
+
+                # Special handling for different location types
+                if location_type == 'Military':
+                    return f"Military Base{mission_num}" if mission_num else "Military Outpost"
+                elif location_type == 'Industrial':
+                    return f"Industrial Complex{mission_num}" if mission_num else "Industrial Facility"
+                elif location_type == 'Settlement':
+                    # Try to extract settlement name
+                    settlement_match = re.search(r'GA_Settle_\d+_([A-Za-z]+)', clean_input)
+                    if settlement_match:
+                        settlement_name = settlement_match.group(1).replace('_', ' ').title()
+                        return f"{settlement_name} Settlement{mission_num}"
+                    return f"Settlement{mission_num}" if mission_num else "Settlement"
+                else:
+                    return f"{location_type} Mission{mission_num}" if mission_num else f"{location_type} Mission"
+
+        # Advanced fallback: Extract meaningful components
+        if clean_input.startswith('GA_'):
+            # Remove GA_ prefix
+            without_prefix = clean_input[3:]
+            
+            # Split by underscores and process
+            parts = without_prefix.split('_')
+            meaningful_parts = []
+            
+            for part in parts:
+                # Skip common suffixes
+                if part.lower() in ['mis', 'mission', 'enc', 'encounter', '01', '02', '03', '1', '2', '3', '4', '5']:
+                    continue
+                
+                # Skip single digits
+                if part.isdigit() and len(part) == 1:
+                    continue
+                
+                # Clean up the part
+                clean_part = part.replace('0', '').title()
+                if len(clean_part) > 2:  # Only include parts with substance
+                    meaningful_parts.append(clean_part)
+            
+            if meaningful_parts:
+                # Combine meaningful parts
+                base_name = ' '.join(meaningful_parts[:2])  # Take first 2 meaningful parts
+                
+                # Add appropriate suffix
+                if any(term in clean_input.lower() for term in ['military', 'base']):
+                    return f"{base_name} Military Base"
+                elif any(term in clean_input.lower() for term in ['ind', 'factory', 'plant']):
+                    return f"{base_name} Industrial Complex"
+                elif any(term in clean_input.lower() for term in ['settle', 'town', 'city']):
+                    return f"{base_name} Settlement"
+                else:
+                    return f"{base_name} Mission"
+
+        # Last resort: Clean up the raw name
+        if clean_input:
+            # Remove common prefixes and suffixes
+            clean_name = clean_input.replace('GA_', '').replace('_Mis_', ' ').replace('_mis', ' ')
+            clean_name = re.sub(r'_0?\d+$', '', clean_name)  # Remove trailing numbers
+            clean_name = clean_name.replace('_Enc', ' Encounter').replace('_', ' ')
+            clean_name = re.sub(r'\s+', ' ', clean_name).strip()  # Normalize spaces
+            
+            if len(clean_name) > 3:
+                return clean_name.title() + " Mission"
+
+        # Absolute fallback
+        return "Unknown Mission"
 
     def normalize_vehicle_name(self, raw_vehicle_name: str) -> str:
         """Normalize vehicle names for better display"""
