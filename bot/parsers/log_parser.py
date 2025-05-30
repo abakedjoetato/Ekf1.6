@@ -532,61 +532,11 @@ class LogParser:
         return stats
 
     async def update_voice_channel_name(self, guild_id: int, server_id: str):
-        """Update voice channel name with current server status"""
-        try:
-            status_key = self.get_server_status_key(guild_id, server_id)
-
-            if status_key not in self.server_status:
-                return
-
-            status = self.server_status[status_key]
-
-            # Get guild config to find voice channel - FIX: Use proper database manager
-            if not hasattr(self.bot, 'db_manager') or not self.bot.db_manager:
-                logger.warning("Bot database not available for voice channel update")
-                return
-
-            guild_config = await self.bot.db_manager.get_guild(guild_id)
-            if not guild_config:
-                return
-
-            # Look for playercountvc channel (set by /setchannel playercountvc command)
-            channels = guild_config.get('channels', {})
-            voice_channel_id = channels.get('playercountvc')
-
-            if not voice_channel_id:
-                logger.debug(f"No playercountvc channel configured for guild {guild_id}")
-                return
-
-            # Get the voice channel
-            guild = self.bot.get_guild(guild_id)
-            if not guild:
-                return
-
-            voice_channel = guild.get_channel(voice_channel_id)
-            if not voice_channel:
-                logger.warning(f"Voice channel {voice_channel_id} not found for guild {guild_id}")
-                return
-
-            # PHASE 2 FIX: Use server name instead of server_id for voice channel updates
-            server_name = status.get('server_name', 'Unnamed Server')
-            current = status['current_players']
-            max_players = status['max_players']
-            queue = status['queue_count']
-
-            # Format: "📈 ServerName: count/max" or "📈 ServerName: count/max (queue in queue)"
-            if queue > 0:
-                new_name = f"📈 {server_name}: {current}/{max_players} ({queue} in queue)"
-            else:
-                new_name = f"📈 {server_name}: {current}/{max_players}"
-
-            # Update channel name if different
-            if voice_channel.name != new_name:
-                await voice_channel.edit(name=new_name)
-                logger.info(f"Updated voice channel name to: {new_name}")
-
-        except Exception as e:
-            logger.error(f"Failed to update voice channel name: {e}")
+        """DEPRECATED: Voice channel updates now handled by IntelligentConnectionParser"""
+        # This method is deprecated - voice channel updates are now handled
+        # by the IntelligentConnectionParser to avoid conflicts
+        logger.debug(f"Voice channel update delegated to IntelligentConnectionParser for server {server_id}")
+        pass
 
     async def get_sftp_log_content(self, server_config: Dict[str, Any]) -> Optional[str]:
         """Get log content from SFTP server using AsyncSSH with rotation detection"""
@@ -764,11 +714,22 @@ class LogParser:
         if not line:
             return None
 
-        # FIRST: Always run intelligent parser for player tracking (doesn't return events, just updates state)
+        # ONLY use intelligent parser for player tracking - remove duplicated logic
         await self.connection_parser.parse_connection_event(line, server_key, guild_id)
 
-        # Try each pattern - prioritize specific patterns over generic ones
+        # Skip player connection patterns - they're handled by intelligent parser
+        skip_patterns = {
+            'queue_join', 'beacon_join', 'player_joined', 'disconnect_post_join', 
+            'disconnect_pre_join', 'beacon_disconnect', 'player_queue_join',
+            'player_beacon_connected', 'player_world_connect', 'player_queue_disconnect',
+            'player_accepted_from', 'player_connection_cleanup', 'player_beacon_join'
+        }
+
+        # Try each pattern - but skip connection patterns to avoid conflicts
         for event_type, pattern in self.log_patterns.items():
+            if event_type in skip_patterns:
+                continue
+                
             match = pattern.search(line)
             if match:
                 try:
@@ -1384,45 +1345,39 @@ class LogParser:
             is_cold_start = total_lines > 1000
 
             if is_cold_start:
-                logger.info(f"🧊 COLD START detected for server {server_id}: {total_lines} lines - Using IntelligentLogParser for comprehensive processing")
+                logger.info(f"🧊 COLD START detected for server {server_id}: {total_lines} lines - Processing via IntelligentConnectionParser")
 
-                # Use the existing IntelligentLogParser for cold start scenarios
-                # Create a temporary log file for the intelligent parser
-                import tempfile
-                with tempfile.NamedTemporaryFile(mode='w', suffix='.log', delete=False) as temp_file:
-                    temp_file.write(log_content)
-                    temp_file_path = temp_file.name
-
-                try:
-                    # Use IntelligentLogParser which has built-in cold start optimization
-                    result = await self.intelligent_parser.parse_log_file(temp_file_path, guild_id, server_id)
-                    logger.info(f"🧊 COLD START completed via IntelligentLogParser: {result.get('events_processed', 0)} events processed")
-                    new_events = result.get('events_processed', 0)
-                    processed_lines = result.get('lines_analyzed', total_lines)
+                # Process all lines through the intelligent connection parser for cold start
+                server_key = self.get_server_status_key(guild_id, server_id)
+                self.connection_parser.initialize_server_tracking(server_key)
+                
+                processed_lines = 0
+                new_events = 0
+                
+                # Process in batches to avoid memory issues
+                batch_size = 1000
+                for i in range(0, total_lines, batch_size):
+                    batch = lines[i:i + batch_size]
                     
-                    # After cold start processing, update file state and ensure connection tracking is current
-                    server_key = self.get_server_status_key(guild_id, server_id)
-                    content_size = len(log_content.encode('utf-8'))
-                    await self._update_file_state(server_key, content_size, total_lines, lines[-1] if lines else "")
-                    
-                    # Ensure voice channels are updated with current player counts from cold start
-                    # Initialize server tracking first, then update counts
-                    self.connection_parser.initialize_server_tracking(server_key)
-                    await self.connection_parser._update_counts(server_key)
-                    
-                    # Force voice channel update after cold start
-                    logger.info(f"🧊 COLD START: Forcing voice channel update for server {server_id}")
-                    stats = self.connection_parser.get_server_stats(server_key)
-                    player_count = stats.get('player_count', 0)
-                    queue_count = stats.get('queue_count', 0)
-                    await self.connection_parser._update_voice_channels(server_key, player_count, queue_count)
-                    
-                finally:
-                    # Clean up temporary file
-                    try:
-                        os.unlink(temp_file_path)
-                    except:
-                        pass
+                    for line in batch:
+                        processed_lines += 1
+                        await self.connection_parser.parse_connection_event(line, server_key, guild_id)
+                        
+                        # Also check for non-connection events
+                        event_data = await self.parse_log_line(line, server_key, guild_id)
+                        if event_data:
+                            await self.send_log_event_embed(guild_id, server_id, event_data)
+                            new_events += 1
+                
+                logger.info(f"🧊 COLD START completed: {processed_lines} lines processed, {new_events} events found")
+                
+                # Update file state
+                server_key = self.get_server_status_key(guild_id, server_id)
+                content_size = len(log_content.encode('utf-8'))
+                await self._update_file_state(server_key, content_size, total_lines, lines[-1] if lines else "")
+                
+                # Force voice channel update after cold start
+                logger.info(f"🧊 COLD START: Voice channel update handled by IntelligentConnectionParser")
 
             else:
                 logger.info(f"🔥 HOT START for server {server_id}: {total_lines} lines - Normal processing with embeds")

@@ -512,273 +512,135 @@ class Parsers(commands.Cog):
 
     @discord.slash_command(name="resetlogparser", description="Reset log parser state and player counts")
     @commands.has_permissions(administrator=True)
-    async def resetlogparser(self, ctx: discord.ApplicationContext,
-                           server_id: Option(str, "Server ID to reset (leave empty for all servers)", required=False) = None):
-        """Reset log parser state and clear player counts"""
+    async def resetlogparser(self, ctx: discord.ApplicationContext, 
+                            server_id: Option(str, "Server ID to reset (leave empty for all)", required=False) = None):
+        """Reset log parser state and player counts"""
         await ctx.defer()
 
         try:
-            if not hasattr(self.bot, 'log_parser') or not self.bot.log_parser:
+            if not hasattr(self.bot, 'log_parser'):
                 await ctx.followup.send("❌ Log parser not initialized")
                 return
 
             guild_id = ctx.guild.id
-
-            # Get guild configuration
-            guild_config = await self.bot.db_manager.get_guild(guild_id)
-            if not guild_config:
-                await ctx.followup.send("❌ This guild is not configured")
-                return
-
-            servers = guild_config.get('servers', [])
-            if not servers:
-                await ctx.followup.send("❌ No servers configured for this guild")
-                return
-
             reset_count = 0
 
             if server_id:
                 # Reset specific server
-                server_found = False
-                for server in servers:
-                    if str(server.get('_id')) == server_id:
-                        server_found = True
-                        server_key = f"{guild_id}_{server_id}"
+                server_key = f"{guild_id}_{server_id}"
 
-                        # Reset log parser state
-                        if hasattr(self.bot.log_parser, 'last_log_position'):
-                            self.bot.log_parser.last_log_position.pop(server_key, None)
+                # Reset connection parser
+                if hasattr(self.bot.log_parser, 'connection_parser'):
+                    self.bot.log_parser.connection_parser.reset_server_counts(server_key)
 
-                        # Reset file states
-                        if hasattr(self.bot.log_parser, 'file_states'):
-                            self.bot.log_parser.file_states.pop(server_key, None)
+                # Reset file states
+                if server_key in self.bot.log_parser.file_states:
+                    del self.bot.log_parser.file_states[server_key]
 
-                        # Reset connection parser state
-                        if hasattr(self.bot.log_parser, 'connection_parser'):
-                            connection_parser = self.bot.log_parser.connection_parser
-                            if hasattr(connection_parser, 'player_states'):
-                                connection_parser.player_states.pop(server_key, None)
-                            if hasattr(connection_parser, 'server_stats'):
-                                connection_parser.server_stats.pop(server_key, None)
+                # Reset legacy position tracking
+                if server_key in self.bot.log_parser.last_log_position:
+                    del self.bot.log_parser.last_log_position[server_key]
 
-                        # Reset server status
-                        if hasattr(self.bot.log_parser, 'server_status'):
-                            self.bot.log_parser.server_status.pop(server_key, None)
-
-                        reset_count = 1
-                        break
-
-                if not server_found:
-                    await ctx.followup.send(f"❌ Server ID {server_id} not found in this guild")
-                    return
+                reset_count = 1
+                logger.info(f"Reset log parser for server {server_id} in guild {guild_id}")
             else:
                 # Reset all servers for this guild
-                for server in servers:
-                    server_key = f"{guild_id}_{server.get('_id')}"
+                guild_prefix = f"{guild_id}_"
 
-                    # Reset log parser state
-                    if hasattr(self.bot.log_parser, 'last_log_position'):
-                        self.bot.log_parser.last_log_position.pop(server_key, None)
+                # Reset connection parser for all servers
+                if hasattr(self.bot.log_parser, 'connection_parser'):
+                    connection_parser = self.bot.log_parser.connection_parser
+                    servers_to_reset = [k for k in connection_parser.server_counts.keys() if k.startswith(guild_prefix)]
+                    for server_key in servers_to_reset:
+                        connection_parser.reset_server_counts(server_key)
+                        reset_count += 1
 
-                    # Reset file states
-                    if hasattr(self.bot.log_parser, 'file_states'):
-                        self.bot.log_parser.file_states.pop(server_key, None)
+                # Reset file states
+                keys_to_remove = [k for k in self.bot.log_parser.file_states.keys() if k.startswith(guild_prefix)]
+                for key in keys_to_remove:
+                    del self.bot.log_parser.file_states[key]
 
-                    # Reset connection parser state
-                    if hasattr(self.bot.log_parser, 'connection_parser'):
-                        connection_parser = self.bot.log_parser.connection_parser
-                        if hasattr(connection_parser, 'player_states'):
-                            connection_parser.player_states.pop(server_key, None)
-                        if hasattr(connection_parser, 'server_stats'):
-                            connection_parser.server_stats.pop(server_key, None)
+                # Reset legacy position tracking  
+                keys_to_remove = [k for k in self.bot.log_parser.last_log_position.keys() if k.startswith(guild_prefix)]
+                for key in keys_to_remove:
+                    del self.bot.log_parser.last_log_position[key]
 
-                    # Reset server status
-                    if hasattr(self.bot.log_parser, 'server_status'):
-                        self.bot.log_parser.server_status.pop(server_key, None)
-
-                    reset_count += 1
-
-            # Create success embed using EmbedFactory
-            from bot.utils.embed_factory import EmbedFactory
-            embed = EmbedFactory.create_success_embed(
-                success_message=f"Log parser state reset for {reset_count} server{'s' if reset_count != 1 else ''}",
-                details="• Cleared last parsed line positions\n• Reset player count tracking\n• Cleared connection states\n• Reset file tracking states\n\nParser will restart from beginning of log files on next run"
-            )
-
-            await ctx.followup.send(embed=embed)
-
-            logger.info(f"Log parser reset completed for guild {guild_id}, reset {reset_count} servers")
-
-        except Exception as e:
-            logger.error(f"Failed to reset log parser: {e}")
-            await ctx.followup.send(f"❌ Failed to reset log parser: {str(e)}")
-
-    @discord.slash_command(name="validatelogparser", description="Validate log parser against included test log file")
-    @commands.has_permissions(administrator=True)
-    async def validatelogparser(self, ctx: discord.ApplicationContext):
-        """Parse the included Deadside.log file and output validation results"""
-        await ctx.defer()
-
-        try:
-            if not hasattr(self.bot, 'log_parser') or not self.bot.log_parser:
-                await ctx.followup.send("❌ Log parser not initialized")
-                return
-
-            import os
-            log_file_path = "attached_assets/Deadside.log"
-
-            if not os.path.exists(log_file_path):
-                await ctx.followup.send("❌ Test log file not found")
-                return
-
-            # Initialize counters for validation
-            validation_results = {
-                'queue_joins': 0,
-                'player_joins': 0,
-                'disconnects_post_join': 0,
-                'disconnects_pre_join': 0,
-                'missions_ready': 0,
-                'missions_initial': 0,
-                'airdrops_flying': 0,
-                'heli_crashes': 0,
-                'traders': 0,
-                'total_lines': 0
-            }
-
-            # Player lifecycle tracking for count calculation
-            jq = 0  # Queued
-            j2 = 0  # Joined
-            d1 = 0  # Disconnected after join
-            d2 = 0  # Disconnected before join
-
-            player_states = {}  # Track player states for accurate counting
-
-            # Parse the log file line by line
-            with open(log_file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                for line_num, line in enumerate(f, 1):
-                    validation_results['total_lines'] += 1
-                    line = line.strip()
-
-                    # Test queue joins
-                    if self.bot.log_parser.log_patterns['queue_join'].search(line):
-                        match = self.bot.log_parser.log_patterns['queue_join'].search(line)
-                        if match:
-                            player_name, player_id = match.groups()
-                            validation_results['queue_joins'] += 1
-                            jq += 1
-                            player_states[player_id] = 'QUEUED'
-
-                    # Test player joins (registrations)
-                    elif self.bot.log_parser.log_patterns['player_joined'].search(line):
-                        match = self.bot.log_parser.log_patterns['player_joined'].search(line)
-                        if match:
-                            player_id = match.groups()[0]
-                            validation_results['player_joins'] += 1
-                            j2 += 1
-                            player_states[player_id] = 'JOINED'
-
-                    # Test disconnects post-join
-                    elif self.bot.log_parser.log_patterns['disconnect_post_join'].search(line):
-                        match = self.bot.log_parser.log_patterns['disconnect_post_join'].search(line)
-                        if match:
-                            player_id = match.groups()[0]
-                            validation_results['disconnects_post_join'] += 1
-                            current_state = player_states.get(player_id, 'UNKNOWN')
-
-                            # Only count as d1 if player was actively joined
-                            # Only count as d2 if player was actively queued
-                            if current_state == 'JOINED':
-                                d1 += 1
-                            elif current_state == 'QUEUED':
-                                d2 += 1
-                            # Don't count disconnections from already disconnected players
-
-                            player_states[player_id] = 'DISCONNECTED'
-
-                    # Test missions ready
-                    elif self.bot.log_parser.log_patterns['mission_ready'].search(line):
-                        match = self.bot.log_parser.log_patterns['mission_ready'].search(line)
-                        if match:
-                            mission_name = match.groups()[0]
-                            # Only count missions level 3+ as per requirements
-                            if 'mis' in mission_name.lower():
-                                validation_results['missions_ready'] += 1
-
-                    # Test missions initial
-                    elif self.bot.log_parser.log_patterns['mission_initial'].search(line):
-                        match = self.bot.log_parser.log_patterns['mission_initial'].search(line)
-                        if match:
-                            mission_name = match.groups()[0]
-                            if 'mis' in mission_name.lower():
-                                validation_results['missions_initial'] += 1
-
-                    # Test airdrops flying
-                    elif self.bot.log_parser.log_patterns['airdrop_flying'].search(line):
-                        validation_results['airdrops_flying'] += 1
-
-            # Calculate final player and queue counts using the specified logic
-            player_count = j2 - d1  # PC = j2 - d1
-            queue_count = jq - j2 - d2  # QC = jq - j2 - d2
-
-            # Create validation results embed manually since EmbedFactory expects different parameters
+            # Create success embed
             embed = discord.Embed(
-                title="📊 Log Parser Validation Results",
-                description=f"Validation completed on {validation_results['total_lines']:,} log lines",
-                color=0x1E90FF,
+                title="🔄 Log Parser Reset",
+                description=f"Successfully reset log parser state for {reset_count} server{'s' if reset_count != 1 else ''}",
+                color=0x00FF00,
                 timestamp=datetime.now(timezone.utc)
             )
 
             embed.add_field(
-                name="🔢 Connection Events", 
-                value=f"• Queue Joins (jq): **{validation_results['queue_joins']}**\n"
-                      f"• Player Joins (j2): **{validation_results['player_joins']}**\n"
-                      f"• Disconnects Post-Join (d1): **{validation_results['disconnects_post_join']}**\n"
-                      f"• Disconnects Pre-Join (d2): **{d2}**", 
-                inline=True
+                name="What was reset:",
+                value="• Player count tracking\n• Connection states\n• File position tracking\n• Parser will restart from current log position",
+                inline=False
             )
-
-            embed.add_field(
-                name="📈 Calculated Counts", 
-                value=f"• **Player Count (PC)**: {player_count}\n"
-                      f"• **Queue Count (QC)**: {queue_count}\n"
-                      f"• Formula: PC = j2 - d1, QC = jq - j2 - d2", 
-                inline=True
-            )
-
-            embed.add_field(
-                name="🎯 Game Events", 
-                value=f"• Missions Ready: **{validation_results['missions_ready']}**\n"
-                      f"• Missions Initial: **{validation_results['missions_initial']}**\n"
-                      f"• Airdrops Flying: **{validation_results['airdrops_flying']}**", 
-                inline=True
-            )
-
-            embed.add_field(
-                name="✅ Validation Status", 
-                value=f"• Patterns Working: **{'✅ Yes' if validation_results['queue_joins'] > 0 else '❌ No'}**\n"
-                      f"• Player Count Valid: **{'✅ Yes' if player_count >= 0 else '❌ No'}**\n"
-                      f"• Queue Count Valid: **{'✅ Yes' if queue_count >= 0 else '❌ No'}**", 
-                inline=True
-            )
-
-            # Set appropriate thumbnail
-            embed.set_thumbnail(url="attachment://Mission.png")
-            embed.set_footer(text="Log Parser Validation • Powered by Emerald Servers")
 
             await ctx.followup.send(embed=embed)
 
-            # Also log the results for debugging
-            logger.info(f"Log parser validation completed:")
-            logger.info(f"  Queue joins: {validation_results['queue_joins']}")
-            logger.info(f"  Player joins: {validation_results['player_joins']}")
-            logger.info(f"  Disconnects: {validation_results['disconnects_post_join']}")
-            logger.info(f"  Missions ready: {validation_results['missions_ready']}")
-            logger.info(f"  Airdrops: {validation_results['airdrops_flying']}")
-            logger.info(f"  Final PC: {player_count}, QC: {queue_count}")
+        except Exception as e:
+            logger.error(f"Failed to reset log parser: {e}")
+            await ctx.followup.send(f"❌ Failed to reset: {str(e)}")
+
+    @discord.slash_command(name="verify_connection_parser", description="Verify connection parser patterns and state")
+    @commands.has_permissions(administrator=True)
+    async def verify_connection_parser(self, ctx: discord.ApplicationContext):
+        """Verify connection parser is working correctly"""
+        await ctx.defer()
+
+        try:
+            if not hasattr(self.bot, 'log_parser') or not hasattr(self.bot.log_parser, 'connection_parser'):
+                await ctx.followup.send("❌ Connection parser not available")
+                return
+
+            connection_parser = self.bot.log_parser.connection_parser
+
+            # Test regex patterns
+            verification_result = connection_parser.verify_regex_patterns()
+
+            # Format results
+            results = ["**🔍 Connection Parser Verification**\n"]
+
+            for pattern_name, result in verification_result.items():
+                match_count = result['match_count']
+                if match_count > 0:
+                    results.append(f"✅ **{pattern_name}**: {match_count} matches")
+                    # Show first match as example
+                    if result['matches']:
+                        first_match = result['matches'][0]
+                        results.append(f"   Example: `{first_match['groups']}`")
+                else:
+                    results.append(f"❌ **{pattern_name}**: No matches")
+
+            # Check current server state
+            guild_id = ctx.guild.id
+            guild_config = await self.bot.db_manager.get_guild(guild_id)
+            if guild_config and guild_config.get('servers'):
+                server = guild_config['servers'][0]
+                server_id = str(server.get('_id', 'unknown'))
+                server_key = f"{guild_id}_{server_id}"
+
+                stats = connection_parser.get_server_stats(server_key)
+                results.append(f"\n**Current Server State ({server.get('name', 'Unknown')}):**")
+                results.append(f"• Players: {stats.get('player_count', 0)}")
+                results.append(f"• Queue: {stats.get('queue_count', 0)}")
+                results.append(f"• Max Players: {stats.get('max_players', 'Unknown')}")
+
+            embed = discord.Embed(
+                title="🔍 Connection Parser Verification",
+                description="\n".join(results),
+                color=0x3498DB,
+                timestamp=datetime.now(timezone.utc)
+            )
+
+            await ctx.followup.send(embed=embed)
 
         except Exception as e:
-            logger.error(f"Failed to validate log parser: {e}")
-            await ctx.followup.send(f"❌ Failed to validate log parser: {str(e)}")
+            logger.error(f"Connection parser verification failed: {e}")
+            await ctx.followup.send(f"❌ Verification failed: {str(e)}")
 
     @discord.slash_command(name="investigate_playercount", description="Deep investigation of player count issues")
     async def investigate_playercount(self, ctx: discord.ApplicationContext, 

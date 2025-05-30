@@ -270,6 +270,11 @@ class IntelligentConnectionParser:
             max_players = int(match.group(1))
             logger.info(f"🎯 Server max players detected: {max_players}")
             await self._update_server_max_players(server_key, max_players)
+            
+            # Force voice channel update with new max players
+            player_count = self.server_counts[server_key]['player_count']
+            queue_count = self.server_counts[server_key]['queue_count']
+            await self._update_voice_channels(server_key, player_count, queue_count, max_players)
         else:
             # Debug: Log lines that contain player-related keywords but don't match patterns
             if any(keyword in line_lower for keyword in ['player', 'join', 'request', 'registered', 'uniqueid', 'uchannel', 'close']):
