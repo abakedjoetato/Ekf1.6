@@ -497,7 +497,12 @@ class IntelligentConnectionParser:
                     logger.debug(f"Cleaned up old state for {player_id}")
 
     def reset_server_counts(self, server_key: str):
-
+        """Reset counts for a specific server"""
+        if server_key in self.player_states:
+            self.player_states[server_key].clear()
+        if server_key in self.server_counts:
+            self.server_counts[server_key] = {'queue_count': 0, 'player_count': 0}
+        logger.info(f"🔄 Reset player counts for server {server_key}")
 
     async def _resolve_player_name(self, player_id: str, server_key: str) -> Optional[str]:
         """Resolve player ID to player name using database lookup and caching"""
