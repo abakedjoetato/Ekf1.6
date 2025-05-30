@@ -175,6 +175,9 @@ class IntelligentConnectionParser:
 
             if player_id:
                 player_state = self.get_or_create_player_state(server_key, player_id, player_name)
+                
+                # Cache the player name
+                await self._cache_player_name(server_key, player_id, player_name)
 
                 if player_state.transition_to('QUEUED', 'queue_join'):
                     await self._update_counts(server_key)
@@ -356,15 +359,12 @@ class IntelligentConnectionParser:
             logger.error(f"Failed to update voice channels: {e}")
 
     async def _queue_join_embed(self, player_state: PlayerConnectionState, server_key: str, guild_id: int):
-        """Queue join embed for player using batch sender"""
-        if not player_state.player_name:
-            logger.warning(f"No player name for join embed: {player_state.player_id}")
-            return
-
+        """Queue join embed for player - works with or without player names"""
         try:
             # Get connections channel
             guild_config = await self.bot.db_manager.get_guild(guild_id)
             if not guild_config:
+                logger.debug(f"No guild config found for {guild_id}")
                 return
 
             channels = guild_config.get('channels', {})
@@ -374,32 +374,48 @@ class IntelligentConnectionParser:
                 logger.debug(f"No connections channel configured for guild {guild_id}")
                 return
 
+            # Use player name or fallback to player ID with "Player" prefix
+            display_name = player_state.player_name or f"Player {player_state.player_id[:8]}"
+
             embed_data = {
-                'connection_id': player_state.player_name,
+                'connection_id': display_name,
                 'timestamp': datetime.now(timezone.utc)
             }
 
             embed, file_attachment = await EmbedFactory.build('player_join', embed_data)
 
-            await self.bot.batch_sender.queue_embed(
-                channel_id=connections_channel_id,
-                embed=embed,
-                file=file_attachment
-            )
+            # Try batch sender first, fallback to direct send
+            if hasattr(self.bot, 'batch_sender') and self.bot.batch_sender:
+                await self.bot.batch_sender.queue_embed(
+                    channel_id=connections_channel_id,
+                    embed=embed,
+                    file=file_attachment
+                )
+                logger.info(f"✅ Queued join embed for {display_name}")
+            else:
+                # Direct send as fallback
+                channel = self.bot.get_channel(connections_channel_id)
+                if channel:
+                    if file_attachment:
+                        await channel.send(embed=embed, file=file_attachment)
+                    else:
+                        await channel.send(embed=embed)
+                    logger.info(f"✅ Sent join embed directly for {display_name}")
+                else:
+                    logger.warning(f"❌ Could not find channel {connections_channel_id}")
 
         except Exception as e:
-            logger.error(f"Failed to queue join embed: {e}")
+            logger.error(f"Failed to send join embed: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
 
     async def _queue_leave_embed(self, player_state: PlayerConnectionState, server_key: str, guild_id: int):
-        """Queue leave embed for player using batch sender"""
-        if not player_state.player_name:
-            logger.warning(f"No player name for leave embed: {player_state.player_id}")
-            return
-
+        """Queue leave embed for player - works with or without player names"""
         try:
             # Get connections channel
             guild_config = await self.bot.db_manager.get_guild(guild_id)
             if not guild_config:
+                logger.debug(f"No guild config found for {guild_id}")
                 return
 
             channels = guild_config.get('channels', {})
@@ -409,21 +425,40 @@ class IntelligentConnectionParser:
                 logger.debug(f"No connections channel configured for guild {guild_id}")
                 return
 
+            # Use player name or fallback to player ID with "Player" prefix
+            display_name = player_state.player_name or f"Player {player_state.player_id[:8]}"
+
             embed_data = {
-                'connection_id': player_state.player_name,
+                'connection_id': display_name,
                 'timestamp': datetime.now(timezone.utc)
             }
 
             embed, file_attachment = await EmbedFactory.build('player_leave', embed_data)
 
-            await self.bot.batch_sender.queue_embed(
-                channel_id=connections_channel_id,
-                embed=embed,
-                file=file_attachment
-            )
+            # Try batch sender first, fallback to direct send
+            if hasattr(self.bot, 'batch_sender') and self.bot.batch_sender:
+                await self.bot.batch_sender.queue_embed(
+                    channel_id=connections_channel_id,
+                    embed=embed,
+                    file=file_attachment
+                )
+                logger.info(f"✅ Queued leave embed for {display_name}")
+            else:
+                # Direct send as fallback
+                channel = self.bot.get_channel(connections_channel_id)
+                if channel:
+                    if file_attachment:
+                        await channel.send(embed=embed, file=file_attachment)
+                    else:
+                        await channel.send(embed=embed)
+                    logger.info(f"✅ Sent leave embed directly for {display_name}")
+                else:
+                    logger.warning(f"❌ Could not find channel {connections_channel_id}")
 
         except Exception as e:
-            logger.error(f"Failed to queue leave embed: {e}")
+            logger.error(f"Failed to send leave embed: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
 
     def get_server_stats(self, server_key: str) -> Dict[str, Any]:
         """Get current server statistics"""
@@ -523,6 +558,13 @@ class IntelligentConnectionParser:
         player_count = self.server_counts[server_key]['player_count']
         queue_count = self.server_counts[server_key]['queue_count']
         await self._update_voice_channels(server_key, player_count, queue_count, max_players)
+
+    async def _cache_player_name(self, server_key: str, player_id: str, player_name: str):
+        """Cache player ID to name mapping"""
+        if server_key not in self.player_names:
+            self.player_names[server_key] = {}
+        self.player_names[server_key][player_id] = player_name
+        logger.debug(f"Cached player name: {player_id} -> {player_name}")
 
     def test_counting_logic(self, server_key: str) -> dict:
         """Test the mathematical soundness of counting logic"""
